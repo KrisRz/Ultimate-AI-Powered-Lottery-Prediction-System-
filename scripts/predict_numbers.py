@@ -10,16 +10,16 @@ from tensorflow.keras.layers import LSTM, Dense, Input
 from sklearn.preprocessing import MinMaxScaler
 import logging
 
-# Konfiguracja logowania
+# Logging configuration
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# Ukrywamy zbędne logi TensorFlow
+# Suppress unnecessary TensorFlow logs
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
-# Ścieżka do pliku z wynikami loterii
+# Path to the lottery results file
 MERGED_FILE = os.path.join("data", "lottery_results_final.csv")
 
-# --- 📌 Funkcja trenowania LSTM (optymalizowana pod kątem pamięci) ---
+# --- Train LSTM Model ---
 def train_lstm_model(series, look_back=10):
     """Trains an LSTM model on historical lottery data with memory optimization."""
     if len(series) < look_back:
@@ -29,7 +29,6 @@ def train_lstm_model(series, look_back=10):
     scaler = MinMaxScaler(feature_range=(0, 1))
     series_scaled = scaler.fit_transform(series.reshape(-1, 1))
     
-    # Używamy generatora zamiast listy, aby zaoszczędzić pamięć
     def generate_sequences(data, look_back):
         for i in range(len(data) - look_back):
             yield data[i:i + look_back], data[i + look_back]
@@ -37,103 +36,101 @@ def train_lstm_model(series, look_back=10):
     X, y = zip(*generate_sequences(series_scaled, look_back))
     X, y = np.array(X), np.array(y)
     
-    # Prostszy model LSTM z mniejszą liczbą jednostek
+    # LSTM Model
     model = Sequential([
         Input(shape=(look_back, 1)),
-        LSTM(32, return_sequences=False),  # Zmniejszona liczba jednostek
+        LSTM(32, return_sequences=False),  # Fewer units for optimization
         Dense(1)
     ])
     model.compile(optimizer='adam', loss='mse')
-    model.fit(X, y, epochs=5, batch_size=1, verbose=0)  # Mniej epok
+    model.fit(X, y, epochs=5, batch_size=1, verbose=0)  # Fewer epochs
     
     return model, scaler, X[-1].reshape(1, look_back, 1)
 
-# --- 📌 Główna funkcja predykcji (optymalizowana pod kątem pamięci) ---
+# --- Analyze and Predict ---
 def analyze_and_predict():
-    """Loads lottery data, trains models, and prepares number predictions with memory optimization."""
+    """Loads lottery data, trains models, and prepares number predictions."""
     if not os.path.exists(MERGED_FILE):
         logging.error("❌ Error: Merged data file not found!")
-        return []
+        return [], [], [], [], [], []
 
     try:
-        # --- 📌 Ładowanie danych w partiach ---
-        chunksize = 10**5  # Przetwarzanie danych w partiach
+        # Load data in chunks for memory efficiency
+        chunksize = 10**5
         df = pd.concat([chunk for chunk in pd.read_csv(MERGED_FILE, chunksize=chunksize)])
         num_cols = ["N1", "N2", "N3", "N4", "N5", "N6", "BN"]
         df[num_cols] = df[num_cols].apply(pd.to_numeric, errors='coerce').astype("Int64")
         df.dropna(subset=num_cols, inplace=True)
 
-        # --- 📌 Analiza liczb ---
+        # Flatten numbers into a single list and count occurrences
         all_numbers = df[num_cols].values.flatten()
         number_counts = pd.Series(all_numbers).value_counts().sort_index()
 
-        # --- 📌 Wybór liczb gorących i zimnych ---
+        # Select hot and cold numbers
         hot_numbers = [num for num in number_counts.nlargest(15).index if 1 <= num <= 59]
         cold_numbers = [num for num in number_counts.nsmallest(15).index if 1 <= num <= 59]
 
-        # Obsługa pustych list
         if not hot_numbers:
-            logging.warning("⚠️ No hot numbers found. Using random numbers as fallback.")
-            hot_numbers = random.sample(range(1, 60), 15)  # Losowe liczby jako zapas
+            logging.warning("⚠️ No hot numbers found. Using random fallback.")
+            hot_numbers = random.sample(range(1, 60), 15)
         if not cold_numbers:
-            logging.warning("⚠️ No cold numbers found. Using random numbers as fallback.")
-            cold_numbers = random.sample(range(1, 60), 15)  # Losowe liczby jako zapas
+            logging.warning("⚠️ No cold numbers found. Using random fallback.")
+            cold_numbers = random.sample(range(1, 60), 15)
 
-        # --- 📌 Analiza najczęstszych par i trójek (używamy generatorów) ---
+        # Generate most common pairs and triplets
         def generate_pairs_and_triplets(data):
-            if len(data) == 0:  # Sprawdzenie, czy dane istnieją
+            if len(data) == 0:
                 return []
             for row in data:
                 yield from combinations(row, 2)
                 yield from combinations(row, 3)
         
         pairs_and_triplets = list(generate_pairs_and_triplets(df[num_cols].values))
-        pair_counts = pd.Series(pairs_and_triplets).value_counts().nlargest(10) if pairs_and_triplets else []
+        pair_counts = pd.Series(pairs_and_triplets).value_counts().nlargest(10) if pairs_and_triplets else pd.Series([])
 
-        # Obsługa pustej listy pair_counts
-        if not pair_counts:
+        if pair_counts.empty:
             logging.warning("⚠️ No frequent pairs found. Using random hot numbers as fallback.")
-            pair_counts = random.sample(hot_numbers, 10)  # Losowe liczby z gorących numerów
+            pair_counts = pd.Series(random.sample(hot_numbers, 10))
 
-        # --- 📌 Predykcja ARIMA ---
+        # --- ARIMA Forecasting ---
         try:
-            arima_model = ARIMA(number_counts, order=(1, 1, 1))  # Prostszy model ARIMA
+            arima_model = ARIMA(number_counts, order=(1, 1, 1))  # Simpler ARIMA model
             arima_fit = arima_model.fit()
-            arima_forecast = [num for num in arima_fit.forecast(steps=5).astype(int).tolist() if 1 <= num <= 59]
+            arima_forecast = pd.Series([num for num in arima_fit.forecast(steps=5).astype(int).tolist() if 1 <= num <= 59])
         except Exception as e:
-            logging.warning(f"⚠️ ARIMA prediction failed: {e}. Using random hot numbers as fallback.")
-            arima_forecast = random.sample(hot_numbers, min(5, len(hot_numbers)))  # Awaryjne numery
+            logging.warning(f"⚠️ ARIMA prediction failed: {e}. Using random fallback.")
+            arima_forecast = pd.Series(random.sample(hot_numbers, min(5, len(hot_numbers))))
 
-        # --- 📌 Predykcja Holt-Winters (tylko jeśli ARIMA zawodzi) ---
-        if not arima_forecast:
+        # --- Holt-Winters Forecasting (fallback if ARIMA fails) ---
+        if arima_forecast.empty:
             try:
                 exp_smooth = ExponentialSmoothing(number_counts, trend="add", seasonal=None).fit()
-                trending_numbers = [num for num in exp_smooth.forecast(5).astype(int).tolist() if 1 <= num <= 59]
+                trending_numbers = pd.Series([num for num in exp_smooth.forecast(5).astype(int).tolist() if 1 <= num <= 59])
             except Exception as e:
-                logging.warning(f"⚠️ Holt-Winters prediction failed: {e}. Using random hot numbers as fallback.")
-                trending_numbers = random.sample(hot_numbers, min(5, len(hot_numbers)))  # Awaryjne numery
+                logging.warning(f"⚠️ Holt-Winters prediction failed: {e}. Using random fallback.")
+                trending_numbers = pd.Series(random.sample(hot_numbers, min(5, len(hot_numbers))))
         else:
-            trending_numbers = []
+            trending_numbers = pd.Series([])
 
-        # --- 📌 Predykcja LSTM ---
+        # --- LSTM Prediction ---
         series = np.array(number_counts.index)
         lstm_model, scaler, last_sequence = train_lstm_model(series)
 
         if lstm_model:
-            lstm_forecast = [num for num in scaler.inverse_transform(lstm_model.predict(last_sequence)).astype(int).flatten().tolist() if 1 <= num <= 59]
+            lstm_forecast = pd.Series([num for num in scaler.inverse_transform(lstm_model.predict(last_sequence)).astype(int).flatten().tolist() if 1 <= num <= 59])
         else:
-            logging.warning("⚠️ LSTM prediction failed. Using random hot numbers as fallback.")
-            lstm_forecast = random.sample(hot_numbers, min(5, len(hot_numbers)))  # Awaryjne numery
+            logging.warning("⚠️ LSTM prediction failed. Using random fallback.")
+            lstm_forecast = pd.Series(random.sample(hot_numbers, min(5, len(hot_numbers))))
 
         return hot_numbers, cold_numbers, list(pair_counts), trending_numbers, arima_forecast, lstm_forecast
 
     except Exception as e:
         logging.error(f"❌ Error during prediction: {e}")
-        return []
+        return [], [], [], [], [], []
 
-# --- 📌 Generowanie wielu zestawów (optymalizowane pod kątem pamięci) ---
+# --- Generate Multiple Predictions ---
 def generate_multiple_predictions(n=5):
-    """Generates multiple sets of lottery predictions using a hybrid method with memory optimization."""
+    """Generates multiple sets of lottery predictions using a hybrid AI approach."""
     hot_numbers, cold_numbers, pair_counts, trending_numbers, arima_forecast, lstm_forecast = analyze_and_predict()
 
     if not hot_numbers or not cold_numbers:
@@ -147,28 +144,18 @@ def generate_multiple_predictions(n=5):
     for i in range(n):
         predicted_numbers = set()
         
-        # Dodajemy 1 liczbę z ARIMA
-        if arima_forecast:
-            num = random.choice(arima_forecast)
-            predicted_numbers.add(num)
-            used_numbers[num] = used_numbers.get(num, 0) + 1
-        
-        # Dodajemy 1 liczbę z Holt-Winters
-        if trending_numbers:
-            num = random.choice(trending_numbers)
-            predicted_numbers.add(num)
-            used_numbers[num] = used_numbers.get(num, 0) + 1
-        
-        # Dodajemy 1 liczbę z LSTM
-        if lstm_forecast:
-            num = random.choice(lstm_forecast)
-            predicted_numbers.add(num)
-            used_numbers[num] = used_numbers.get(num, 0) + 1
-        
-        # Dodajemy 3 liczby z hot/cold numbers
+        if not arima_forecast.empty:
+            predicted_numbers.add(random.choice(arima_forecast.tolist()))
+
+        if not trending_numbers.empty:
+            predicted_numbers.add(random.choice(trending_numbers.tolist()))
+
+        if not lstm_forecast.empty:
+            predicted_numbers.add(random.choice(lstm_forecast.tolist()))
+
         while len(predicted_numbers) < 6:
             num = random.choice(hot_numbers + cold_numbers)
-            if used_numbers.get(num, 0) < 3:  # Limit dla gorących/zimnych liczb
+            if used_numbers.get(num, 0) < 3:
                 predicted_numbers.add(num)
                 used_numbers[num] = used_numbers.get(num, 0) + 1
         
