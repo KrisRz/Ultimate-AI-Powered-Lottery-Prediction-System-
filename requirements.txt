@@ -1,0 +1,7 @@
+pandas – do przetwarzania danych
+numpy – operacje matematyczne
+matplotlib – jeśli używasz do wizualizacji wyników (ale w kodzie tego nie widzę)
+statsmodels – dla ARIMA i Holt-Winters
+scikit-learn – dla MinMaxScaler w LSTM
+tensorflow – do trenowania sieci LSTM
+requests – jeśli fetch_data.py pobiera dane z internetu
