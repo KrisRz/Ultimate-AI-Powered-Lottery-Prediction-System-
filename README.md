@@ -53,6 +53,12 @@ lottery_provide/
 │── visualizations/            # Folder for prediction charts
 │   ├── frequency_chart.png    # Visualized lottery number trends
 │
+│── models/                    # Folder for trained AI models
+│   ├── lstm_model.h5          # Saved LSTM model
+│   ├── arima_model.pkl        # Saved ARIMA model
+│   ├── holt_winters_model.pkl # Saved Holt-Winters model
+│   ├── rl_model.zip           # Saved Reinforcement Learning model
+│
 │── main.py                    # Master script to run all modules
 │── requirements.txt           # List of dependencies
 │── README.md                  # This file
