@@ -53,9 +53,9 @@ lottery_provide/
 │── models/                    # Folder for trained AI models
 │   ├── lstm_model.h5          # Saved LSTM model
 │   ├── arima_model.pkl        # Saved ARIMA model
-│   ├── holt_winters_model.pkl # Saved Holt-Winters model
-│   ├── xgboost_model.pkl      # Saved XGBoost model
-│   ├── gradient_boosting.pkl  # Saved Gradient Boosting model
+│   
+│   
+│   
 │
 │── main.py                    # Master script to run all modules
 │── requirements.txt            # List of dependencies
